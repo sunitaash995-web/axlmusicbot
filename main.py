@@ -168,16 +168,33 @@ _INNERTUBE_CLIENTS = [
 ]
 
 def _innertube_search(query: str) -> dict:
-    """Search YouTube via yt-dlp (search doesn't trigger bot check).
-    Returns video ID and title."""
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True}) as ydl:
-        info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-        if "entries" in info:
-            info = info["entries"][0]
-        return {
-            "id": info.get("id", ""),
-            "title": info.get("title", "Unknown"),
-        }
+    """Search YouTube WITHOUT yt-dlp (avoids ffprobe issues).
+    Uses YouTube search page HTML and regex to extract video ID."""
+    import re
+    
+    # Use YouTube search page directly
+    search_url = f"https://www.youtube.com/results?search_query={_ureq.quote(query)}"
+    req = _ureq.Request(
+        search_url,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+    )
+    
+    try:
+        with _ureq.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode('utf-8', errors='ignore')
+        
+        # Extract video IDs from HTML
+        # Look for "videoId":"XXXXXXXXXXX" patterns
+        video_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+        if video_ids:
+            # Get title too
+            title_match = re.search(r'"title":{"runs":\[{"text":"([^"]{5,100})"', html)
+            title = title_match.group(1) if title_match else "Unknown"
+            return {"id": video_ids[0], "title": title}
+    except Exception as e:
+        logger.warning(f"HTML search failed: {e}")
+    
+    raise Exception("No video found")
 
 def _innertube_player(video_id: str) -> dict:
     """Get direct audio URL via InnerTube player API (Axlmusic method)"""
@@ -245,10 +262,11 @@ def _innertube_player(video_id: str) -> dict:
     raise Exception(f"InnerTube failed: {last_error}")
 
 def get_audio_url(query: str) -> dict:
-    """Get audio URL - tries yt-dlp with cookies first, then InnerTube.
+    """Get audio URL - tries InnerTube first (no yt-dlp, no ffprobe issues),
+    then yt-dlp with cookies as fallback.
     
     If query is a URL, extract video ID directly.
-    Otherwise, search via yt-dlp.
+    Otherwise, search via HTML (no yt-dlp!).
     """
     # Extract video ID if URL provided
     video_id = None
@@ -260,7 +278,29 @@ def get_audio_url(query: str) -> dict:
         if m:
             video_id = m.group(1)
     
-    # Try yt-dlp with cookies FIRST (most reliable with valid cookies)
+    # Step 1: Get video ID via HTML search (NO yt-dlp!)
+    if not video_id:
+        try:
+            result = _innertube_search(query)
+            video_id = result["id"]
+            title_hint = result["title"]
+        except Exception as e:
+            logger.warning(f"HTML search failed: {e}")
+    
+    # Step 2: Get audio URL via InnerTube player (NO yt-dlp!)
+    if video_id:
+        try:
+            result = _innertube_player(video_id)
+            if result["title"] == "Unknown" and title_hint:
+                result["title"] = title_hint
+            result["thumbnail"] = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+            logger.info(f"InnerTube success: {result['title']}")
+            return result
+        except Exception as e:
+            logger.warning(f"InnerTube player failed: {str(e)[:100]}")
+    
+    # Step 3: Fallback to yt-dlp with cookies (may hit ffprobe/bot issues)
+    logger.warning("Falling back to yt-dlp with cookies")
     try:
         with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
             if video_id:
@@ -274,34 +314,13 @@ def get_audio_url(query: str) -> dict:
                 info = info["entries"][0]
             return {
                 "url": info["url"],
-                "title": info.get("title", "Unknown"),
+                "title": info.get("title", title_hint or "Unknown"),
                 "duration": info.get("duration", 0),
                 "thumbnail": info.get("thumbnail", ""),
                 "webpage_url": info.get("webpage_url", ""),
             }
     except Exception as e:
-        logger.warning(f"yt-dlp with cookies failed: {str(e)[:100]}, trying InnerTube")
-    
-    # Fallback: InnerTube API (no cookies)
-    if not video_id:
-        try:
-            result = _innertube_search(query)
-            video_id = result["id"]
-            title_hint = result["title"]
-        except Exception as e:
-            raise Exception(f"Search failed: {e}")
-    
-    if not video_id:
-        raise Exception("Could not find video")
-    
-    try:
-        result = _innertube_player(video_id)
-        if result["title"] == "Unknown" and title_hint:
-            result["title"] = title_hint
-        result["thumbnail"] = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        return result
-    except Exception as e:
-        raise Exception(f"All methods failed: {str(e)[:100]}")
+        raise Exception(f"All methods failed: {str(e)[:150]}")
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):

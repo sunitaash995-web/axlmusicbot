@@ -22,39 +22,8 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # VC support (optional - requires py-tgcalls + SESSION_STRING)
-# Compatibility shims: py-tgcalls expects names removed from pyrogram 2.0.x
-try:
-    import pyrogram.errors as _pge
-    _fallback = getattr(_pge, 'GroupcallAddParticipantsFailed', Exception)
-    for _name in ('GroupcallForbidden', 'GroupcallInvalid'):
-        if not hasattr(_pge, _name):
-            setattr(_pge, _name, _fallback)
-    
-    # InputGroupCallSlug was removed from pyrogram.raw.types
-    # Recreate it: inputGroupCallSlug#c5af1d61 slug:string = InputGroupCall
-    import pyrogram.raw.types as _prt
-    if not hasattr(_prt, 'InputGroupCallSlug'):
-        from pyrogram.raw.core import TLObject
-        class InputGroupCallSlug(TLObject):
-            ID = 0xc5af1d61
-            QUALNAME = "types.InputGroupCallSlug"
-            def __init__(self, *, slug: str):
-                self.slug = slug
-        _prt.InputGroupCallSlug = InputGroupCallSlug
-    
-    # PhoneCallDiscardReasonMigrateConferenceCall was removed
-    # Recreate it: phoneCallDiscardReasonMigrateConferenceCall#0e1e1ad8 = PhoneCallDiscardReason
-    if not hasattr(_prt, 'PhoneCallDiscardReasonMigrateConferenceCall'):
-        from pyrogram.raw.core import TLObject
-        class PhoneCallDiscardReasonMigrateConferenceCall(TLObject):
-            ID = 0x0e1e1ad8
-            QUALNAME = "types.PhoneCallDiscardReasonMigrateConferenceCall"
-            def __init__(self):
-                pass
-        _prt.PhoneCallDiscardReasonMigrateConferenceCall = PhoneCallDiscardReasonMigrateConferenceCall
-except Exception:
-    pass
-
+# Note: Compatibility shims removed for py-tgcalls 2.3.3
+# The public_key error is a known issue - using direct play() without shims
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.types import MediaStream

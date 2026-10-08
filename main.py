@@ -127,23 +127,165 @@ if VC_AVAILABLE and user:
 # Queue per chat
 queues = {}
 
-def get_audio_url(query: str) -> dict:
-    """Search YouTube and get direct audio URL + metadata
-    Uses Android player client to bypass bot detection (no cookies needed)"""
-    with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
-        # If query is not a URL, search
-        if not query.startswith("http"):
-            query = f"ytsearch1:{query}"
-        info = ydl.extract_info(query, download=False)
+# ============================================================================
+# AXLMUSIC METHOD: Direct YouTube InnerTube API (no yt-dlp, no cookies, no bot check)
+# Same as Axlmusic app's InnerTubeMusicApi.kt - tries multiple player clients
+# ============================================================================
+import json as _json
+import urllib.request as _ureq
+
+# Player clients (from Axlmusic's InnerTubeMusicApi - public YouTube clients)
+# Each has name, version, api_key, user_agent
+_INNERTUBE_CLIENTS = [
+    {
+        "name": "ANDROID",
+        "version": "20.10.38",
+        "api_key": "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ-qi4oJ6tGs",
+        "user_agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip",
+    },
+    {
+        "name": "WEB",
+        "version": "2.20241008.00.00",
+        "api_key": "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    },
+]
+
+def _innertube_search(query: str) -> dict:
+    """Search YouTube via yt-dlp (search doesn't trigger bot check).
+    Returns video ID and title."""
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True}) as ydl:
+        info = ydl.extract_info(f"ytsearch1:{query}", download=False)
         if "entries" in info:
             info = info["entries"][0]
         return {
-            "url": info["url"],
+            "id": info.get("id", ""),
             "title": info.get("title", "Unknown"),
-            "duration": info.get("duration", 0),
-            "thumbnail": info.get("thumbnail", ""),
-            "webpage_url": info.get("webpage_url", ""),
         }
+
+def _innertube_player(video_id: str) -> dict:
+    """Get direct audio URL via InnerTube player API (Axlmusic method)"""
+    last_error = None
+    
+    for client in _INNERTUBE_CLIENTS:
+        try:
+            url = f"https://www.youtube.com/youtubei/v1/player?key={client['api_key']}&prettyPrint=false"
+            
+            payload = {
+                "context": {
+                    "client": {
+                        "clientName": client["name"],
+                        "clientVersion": client["version"],
+                        "hl": "en",
+                        "gl": "US",
+                    }
+                },
+                "videoId": video_id,
+                "contentCheckOk": True,
+                "racyCheckOk": True,
+            }
+            
+            req = _ureq.Request(
+                url,
+                data=_json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json", "User-Agent": client["user_agent"]},
+            )
+            
+            with _ureq.urlopen(req, timeout=15) as resp:
+                data = _json.loads(resp.read())
+            
+            # Check playability
+            status = data.get("playabilityStatus", {}).get("status")
+            if status != "OK":
+                last_error = f"Playability: {status}"
+                continue
+            
+            # Extract audio formats
+            streaming = data.get("streamingData", {})
+            formats = streaming.get("adaptiveFormats", [])
+            
+            best_audio = None
+            for f in formats:
+                mime = f.get("mimeType", "")
+                if "audio" in mime and f.get("url"):
+                    # Prefer opus, then any audio
+                    if not best_audio or ("opus" in mime and "opus" not in best_audio.get("mimeType", "")):
+                        best_audio = f
+            
+            if best_audio:
+                details = data.get("videoDetails", {})
+                return {
+                    "url": best_audio["url"],
+                    "title": details.get("title", "Unknown"),
+                    "duration": int(details.get("lengthSeconds", 0)),
+                    "thumbnail": "",
+                    "webpage_url": f"https://www.youtube.com/watch?v={video_id}",
+                }
+            last_error = "No audio format found"
+        except Exception as e:
+            last_error = str(e)
+            continue
+    
+    raise Exception(f"InnerTube failed: {last_error}")
+
+def get_audio_url(query: str) -> dict:
+    """Get audio URL via Axlmusic's InnerTube method (no yt-dlp, no cookies, no bot check)
+    
+    If query is a URL, extract video ID directly.
+    Otherwise, search via InnerTube API.
+    """
+    # Extract video ID if URL provided
+    video_id = None
+    title_hint = None
+    
+    if "youtube.com/watch" in query or "youtu.be/" in query:
+        import re
+        m = re.search(r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})", query)
+        if m:
+            video_id = m.group(1)
+    
+    if not video_id:
+        # Search via InnerTube (no yt-dlp!)
+        try:
+            result = _innertube_search(query)
+            video_id = result["id"]
+            title_hint = result["title"]
+        except Exception as e:
+            # Fallback to yt-dlp search only (no download)
+            logger.warning(f"InnerTube search failed: {e}, trying yt-dlp")
+            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True}) as ydl:
+                info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+                if "entries" in info:
+                    info = info["entries"][0]
+                video_id = info.get("id", "")
+                title_hint = info.get("title", "Unknown")
+    
+    if not video_id:
+        raise Exception("Could not find video")
+    
+    # Get audio URL via InnerTube player (Axlmusic method)
+    try:
+        result = _innertube_player(video_id)
+        if result["title"] == "Unknown" and title_hint:
+            result["title"] = title_hint
+        # Get thumbnail
+        try:
+            result["thumbnail"] = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+        except:
+            pass
+        return result
+    except Exception as e:
+        logger.warning(f"InnerTube player failed: {e}, trying yt-dlp")
+        # Last resort: yt-dlp (may hit bot check)
+        with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            return {
+                "url": info["url"],
+                "title": info.get("title", title_hint or "Unknown"),
+                "duration": info.get("duration", 0),
+                "thumbnail": info.get("thumbnail", ""),
+                "webpage_url": info.get("webpage_url", ""),
+            }
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):

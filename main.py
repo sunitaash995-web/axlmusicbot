@@ -21,15 +21,14 @@ API_HASH = os.getenv("API_HASH", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
-# VC support (optional - requires pytgcalls + SESSION_STRING)
+# VC support (optional - requires py-tgcalls + SESSION_STRING)
 try:
-    from pytgcalls import PyTgCalls, StreamType
-    from pytgcalls.types.input_stream import AudioPiped
-    from pytgcalls.types.input_stream.quality import HighQualityAudio
+    from pytgcalls import PyTgCalls
+    from pytgcalls.types import MediaStream
     VC_AVAILABLE = True
 except ImportError:
     VC_AVAILABLE = False
-    logger.warning("pytgcalls not installed - VC features disabled")
+    logger.warning("py-tgcalls not installed - VC features disabled")
 
 # yt-dlp options for audio extraction
 YTDL_OPTS = {
@@ -167,11 +166,7 @@ async def vplay_cmd(client, message: Message):
 
         # If not already playing, start
         try:
-            await pytgcalls.play(
-                chat_id,
-                AudioPiped(info["url"], HighQualityAudio()),
-                stream_type=StreamType().pulse_stream,
-            )
+            await pytgcalls.play(chat_id, MediaStream(info["url"]))
         except Exception:
             # Already in call, just queued
             pass
@@ -203,11 +198,7 @@ async def skip_cmd(client, message: Message):
         if chat_id in queues and len(queues[chat_id]) > 1:
             queues[chat_id].pop(0)
             next_song = queues[chat_id][0]
-            await pytgcalls.play(
-                chat_id,
-                AudioPiped(next_song["url"], HighQualityAudio()),
-                stream_type=StreamType().pulse_stream,
-            )
+            await pytgcalls.play(chat_id, MediaStream(next_song["url"]))
             await message.reply_text(f"⏭️ **Agla:** {next_song['title']}")
         else:
             await pytgcalls.leave_group_call(chat_id)

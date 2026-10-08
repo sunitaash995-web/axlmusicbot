@@ -66,6 +66,17 @@ except ImportError:
 # yt-dlp options for audio extraction
 # Uses Android client + skips webpage to bypass YouTube bot detection (no cookies)
 # Same principle as Axlmusic: direct InnerTube API, no webpage scraping
+# ffmpeg_location uses imageio-ffmpeg's bundled binary (works on Railway without system ffmpeg)
+def _get_ffmpeg_dir():
+    try:
+        import imageio_ffmpeg
+        import os
+        return os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
+    except Exception:
+        return None
+
+_FFMPEG_DIR = _get_ffmpeg_dir()
+
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -73,6 +84,7 @@ YTDL_OPTS = {
     "extract_flat": False,
     "default_search": "ytsearch",
     "noplaylist": True,
+    **({"ffmpeg_location": _FFMPEG_DIR} if _FFMPEG_DIR else {}),
     "extractor_args": {
         "youtube": {
             "player_client": ["android_music", "android", "ios", "web"],
@@ -170,6 +182,7 @@ async def play_cmd(client, message: Message):
             "quiet": True,
             "no_warnings": True,
             "outtmpl": f"/tmp/%(title)s.%(ext)s",
+            **({"ffmpeg_location": _FFMPEG_DIR} if _FFMPEG_DIR else {}),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",

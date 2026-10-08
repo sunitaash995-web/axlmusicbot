@@ -130,10 +130,67 @@ if SESSION_STRING:
 # For backwards compatibility with handlers
 app = bot
 
+# Download ffprobe binary at runtime (Railway doesn't have it)
+def _ensure_ffprobe():
+    """Download static ffprobe if not available. Returns path or None."""
+    import shutil
+    import os
+    
+    if shutil.which("ffprobe"):
+        return shutil.which("ffprobe")
+    
+    # Try to download static ffprobe
+    ffprobe_path = "/tmp/ffprobe"
+    if os.path.exists(ffprobe_path):
+        os.environ["PATH"] = "/tmp:" + os.environ["PATH"]
+        return ffprobe_path
+    
+    try:
+        import urllib.request
+        import tarfile
+        
+        logger.info("📥 Downloading ffprobe...")
+        # BtbN FFmpeg builds (includes ffprobe)
+        url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+        
+        tar_path = "/tmp/ffmpeg.tar.xz"
+        # Download with timeout
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            with open(tar_path, "wb") as f:
+                f.write(resp.read())
+        
+        logger.info("📦 Extracting ffprobe...")
+        with tarfile.open(tar_path, "r:xz") as tar:
+            # Find ffprobe in the archive
+            for member in tar.getmembers():
+                if member.name.endswith("/bin/ffprobe"):
+                    member.name = "ffprobe"  # Extract to /tmp/ffprobe
+                    tar.extract(member, "/tmp")
+                    break
+        
+        if os.path.exists("/tmp/ffprobe"):
+            os.chmod("/tmp/ffprobe", 0o755)
+            os.environ["PATH"] = "/tmp:" + os.environ["PATH"]
+            logger.info("✅ ffprobe downloaded: /tmp/ffprobe")
+            # Cleanup
+            try:
+                os.remove(tar_path)
+            except:
+                pass
+            return "/tmp/ffprobe"
+    except Exception as e:
+        logger.warning(f"ffprobe download failed: {e}")
+    
+    return None
+
 # VC client (attaches to user client)
 pytgcalls = None
 if VC_AVAILABLE and user:
     try:
+        # Ensure ffprobe is available BEFORE creating PyTgCalls
+        _ensure_ffprobe()
+        
         pytgcalls = PyTgCalls(user)
         logger.info("✅ py-tgcalls ready (VC mode)")
         # Check ffmpeg/ffprobe availability

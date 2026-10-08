@@ -253,6 +253,59 @@ _INNERTUBE_CLIENTS = [
     },
 ]
 
+def _jiosaavn_search(query: str) -> dict:
+    """Search JioSaavn for a song. Returns title, audio URL, duration.
+    Works from servers (no IP block like YouTube)."""
+    import json
+    
+    # Search
+    search_url = (
+        "https://www.jiosaavn.com/api.php?__call=search.getResults"
+        f"&q={_ureq.quote(query)}&_format=json&_marker=0&api_version=4&ctx=web6dot0"
+    )
+    req = _ureq.Request(
+        search_url,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+    )
+    with _ureq.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+    
+    results = data.get("results", [])
+    if not results:
+        raise Exception("No results on JioSaavn")
+    
+    song = results[0]
+    more_info = song.get("more_info", {})
+    encrypted_url = more_info.get("encrypted_media_url", "")
+    
+    if not encrypted_url:
+        raise Exception("No audio URL")
+    
+    # Decrypt the media URL (JioSaavn uses DES)
+    try:
+        from Crypto.Cipher import DES
+        import base64
+        key = b'3834657266504547'
+        cipher = DES.new(key, DES.MODE_ECB)
+        decrypted = cipher.decrypt(base64.b64decode(encrypted_url))
+        # Remove PKCS5 padding
+        pad_len = decrypted[-1]
+        decrypted = decrypted[:-pad_len]
+        media_url = decrypted.decode('utf-8').strip()
+        # Replace _96 with _320 for higher quality if available
+        if "_96." in media_url and more_info.get("320kbps") == "true":
+            media_url = media_url.replace("_96.", "_320.")
+    except Exception as e:
+        raise Exception(f"Decrypt failed: {e}")
+    
+    return {
+        "title": song.get("title", "Unknown"),
+        "url": media_url,
+        "duration": int(more_info.get("duration", 0) or 0),
+        "thumbnail": song.get("image", ""),
+        "source": "jiosaavn",
+    }
+
 def _innertube_search(query: str) -> dict:
     """Search YouTube WITHOUT yt-dlp (avoids ffprobe issues).
     Uses YouTube search page HTML and regex to extract video ID."""
@@ -492,53 +545,82 @@ async def vplay_cmd(client, message: Message):
     chat_id = message.chat.id
     status = await message.reply_text(f"🔍 **{query}** dhoond raha hoon...")
 
-    try:
-        # Step 1: Get video info via HTML search (works!)
-        info = get_audio_url(query)
-        # If get_audio_url fails, try direct download approach
-    except Exception as e:
-        logger.warning(f"get_audio_url failed: {e}, trying direct download")
-        info = None
-    
-    # Step 2: Download the audio file directly (like /play does - this works!)
-    await status.edit_text(f"⬇️ Download ho raha hai...")
-    
-    dl_opts = {
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
-        # Web cookies (from web browser)
-        **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
-        # PO Token provider (like Axlmusic!) + multiple clients
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android", "ios"],
-                "po_token_provider": ["bgutil-http"],
-            }
-        },
-        **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-    }
+    # Try JioSaavn FIRST (works from servers, no YouTube IP block!)
+    title = None
+    duration = 0
+    filename = None
+    audio_url = None
     
     try:
-        with yt_dlp.YoutubeDL(dl_opts) as ydl:
-            # Search and download in one go
-            search_url = f"ytsearch1:{query}" if not query.startswith("http") else query
-            dl_info = ydl.extract_info(search_url, download=True)
-            if "entries" in dl_info:
-                dl_info = dl_info["entries"][0]
-            filename = ydl.prepare_filename(dl_info).rsplit(".", 1)[0] + ".mp3"
-            title = dl_info.get("title", "Unknown")
-            duration = dl_info.get("duration", 0)
-    except Exception as dl_err:
-        logger.error(f"Download failed: {dl_err}")
-        await status.edit_text(f"❌ Download failed: {str(dl_err)[:150]}")
-        return
+        logger.info(f"Trying JioSaavn for: {query}")
+        js_info = _jiosaavn_search(query)
+        title = js_info["title"]
+        duration = js_info["duration"]
+        audio_url = js_info["url"]
+        logger.info(f"JioSaavn found: {title}")
+        await status.edit_text(f"⬇️ **{title}** download ho raha hai...")
+        
+        # Download from JioSaavn URL
+        import urllib.request
+        filename = f"/tmp/vplay_js_{chat_id}.mp3"
+        req = urllib.request.Request(
+            audio_url,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            with open(filename, "wb") as f:
+                f.write(resp.read())
+        logger.info(f"JioSaavn download complete: {filename}")
+        
+    except Exception as js_err:
+        logger.warning(f"JioSaavn failed: {js_err}, trying YouTube")
+        filename = None
+    
+    # Fallback: YouTube download (if JioSaavn failed)
+    if not filename or not os.path.exists(filename):
+        try:
+            # Step 1: Get video info via HTML search (works!)
+            info = get_audio_url(query)
+        except Exception as e:
+            logger.warning(f"get_audio_url failed: {e}, trying direct download")
+            info = None
+        
+        # Step 2: Download the audio file directly
+        await status.edit_text(f"⬇️ Download ho raha hai...")
+        
+        dl_opts = {
+            "format": "bestaudio/best",
+            "quiet": True,
+            "no_warnings": True,
+            "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
+            **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["web", "android", "ios"],
+                    "po_token_provider": ["bgutil-http"],
+                }
+            },
+            **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+        }
+        
+        try:
+            with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                search_url = f"ytsearch1:{query}" if not query.startswith("http") else query
+                dl_info = ydl.extract_info(search_url, download=True)
+                if "entries" in dl_info:
+                    dl_info = dl_info["entries"][0]
+                filename = ydl.prepare_filename(dl_info).rsplit(".", 1)[0] + ".mp3"
+                title = dl_info.get("title", "Unknown")
+                duration = dl_info.get("duration", 0)
+        except Exception as dl_err:
+            logger.error(f"Download failed: {dl_err}")
+            await status.edit_text(f"❌ Download failed: {str(dl_err)[:150]}")
+            return
 
     # Step 3: Play the LOCAL file in VC (no stream URL needed!)
     await status.edit_text(f"🎵 **{title}** VC me baja raha hoon...")

@@ -74,19 +74,33 @@ YTDL_OPTS = {
 }
 
 # Initialize clients
-app = Client(
-    "axlmusicbot",
+# Bot client (handles commands) - uses BOT_TOKEN
+bot = Client(
+    "axlmusicbot_bot",
     api_id=API_ID,
     api_hash=API_HASH,
-    session_string=SESSION_STRING if SESSION_STRING else None,
-    bot_token=BOT_TOKEN if BOT_TOKEN and not SESSION_STRING else None,
+    bot_token=BOT_TOKEN,
 )
 
-# VC client (only if available and session string provided)
+# User client (for VC) - uses SESSION_STRING
+user = None
+if SESSION_STRING:
+    user = Client(
+        "axlmusicbot_user",
+        api_id=API_ID,
+        api_hash=API_HASH,
+        session_string=SESSION_STRING,
+    )
+
+# For backwards compatibility with handlers
+app = bot
+
+# VC client (attaches to user client)
 pytgcalls = None
-if VC_AVAILABLE and SESSION_STRING:
+if VC_AVAILABLE and user:
     try:
-        pytgcalls = PyTgCalls(app)
+        pytgcalls = PyTgCalls(user)
+        logger.info("✅ py-tgcalls ready (VC mode)")
     except Exception as e:
         logger.warning(f"PyTgCalls init failed (VC disabled): {e}")
         pytgcalls = None
@@ -273,7 +287,11 @@ async def queue_cmd(client, message: Message):
     await message.reply_text(text)
 
 async def main():
-    await app.start()
+    await bot.start()
+    logger.info("🤖 Bot client started")
+    if user:
+        await user.start()
+        logger.info("👤 User client started")
     if pytgcalls:
         await pytgcalls.start()
         logger.info("🎵 AXLMUSICBOT is online with VC support!")
@@ -282,4 +300,4 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    app.run(main())
+    bot.run(main())

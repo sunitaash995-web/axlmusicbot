@@ -66,17 +66,7 @@ except ImportError:
 # yt-dlp options for audio extraction
 # Uses Android client + skips webpage to bypass YouTube bot detection (no cookies)
 # Same principle as Axlmusic: direct InnerTube API, no webpage scraping
-# ffmpeg_location uses imageio-ffmpeg's bundled binary (works on Railway without system ffmpeg)
-def _get_ffmpeg_dir():
-    try:
-        import imageio_ffmpeg
-        import os
-        return os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
-    except Exception:
-        return None
-
-_FFMPEG_DIR = _get_ffmpeg_dir()
-
+# NOTE: No ffmpeg_location here - info extraction doesn't need ffmpeg
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -84,7 +74,6 @@ YTDL_OPTS = {
     "extract_flat": False,
     "default_search": "ytsearch",
     "noplaylist": True,
-    **({"ffmpeg_location": _FFMPEG_DIR} if _FFMPEG_DIR else {}),
     "extractor_args": {
         "youtube": {
             "player_client": ["android_music", "android", "ios", "web"],
@@ -92,6 +81,16 @@ YTDL_OPTS = {
         }
     },
 }
+
+# Get ffmpeg binary path for downloads (imageio-ffmpeg bundled)
+def _get_ffmpeg_exe():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+_FFMPEG_EXE = _get_ffmpeg_exe()
 
 # Initialize clients
 # Bot client (handles commands) - uses BOT_TOKEN
@@ -177,12 +176,13 @@ async def play_cmd(client, message: Message):
         await status.edit_text(f"⬇️ **{info['title']}** download ho raha hai...")
 
         # Download the audio file
+        # Use bundled ffmpeg binary for MP3 conversion
         dl_opts = {
             "format": "bestaudio/best",
             "quiet": True,
             "no_warnings": True,
             "outtmpl": f"/tmp/%(title)s.%(ext)s",
-            **({"ffmpeg_location": _FFMPEG_DIR} if _FFMPEG_DIR else {}),
+            **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",

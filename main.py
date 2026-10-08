@@ -9,9 +9,6 @@ import asyncio
 import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pytgcalls import PyTgCalls, StreamType
-from pytgcalls.types.input_stream import AudioPiped, AudioVideoPiped
-from pytgcalls.types.input_stream.quality import HighQualityAudio
 import yt_dlp
 
 # Logging
@@ -23,6 +20,16 @@ API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
+# VC support (optional - requires pytgcalls + SESSION_STRING)
+try:
+    from pytgcalls import PyTgCalls, StreamType
+    from pytgcalls.types.input_stream import AudioPiped
+    from pytgcalls.types.input_stream.quality import HighQualityAudio
+    VC_AVAILABLE = True
+except ImportError:
+    VC_AVAILABLE = False
+    logger.warning("pytgcalls not installed - VC features disabled")
 
 # yt-dlp options for audio extraction
 YTDL_OPTS = {
@@ -42,7 +49,11 @@ app = Client(
     session_string=SESSION_STRING if SESSION_STRING else None,
     bot_token=BOT_TOKEN if BOT_TOKEN and not SESSION_STRING else None,
 )
-pytgcalls = PyTgCalls(app)
+
+# VC client (only if available and session string provided)
+pytgcalls = None
+if VC_AVAILABLE and SESSION_STRING:
+    pytgcalls = PyTgCalls(app)
 
 # Queue per chat
 queues = {}
@@ -131,6 +142,13 @@ async def play_cmd(client, message: Message):
 @app.on_message(filters.command("vplay"))
 async def vplay_cmd(client, message: Message):
     """Play in voice chat"""
+    if not pytgcalls:
+        await message.reply_text(
+            "❌ VC feature abhi available nahi hai!\n"
+            "Session string add karo Railway variables me."
+        )
+        return
+
     if len(message.command) < 2:
         await message.reply_text("❌ Gaane ka naam to bata! `/vplay lagao jaan`")
         return
@@ -228,8 +246,11 @@ async def queue_cmd(client, message: Message):
 
 async def main():
     await app.start()
-    await pytgcalls.start()
-    logger.info("🎵 AXLMUSICBOT is online!")
+    if pytgcalls:
+        await pytgcalls.start()
+        logger.info("🎵 AXLMUSICBOT is online with VC support!")
+    else:
+        logger.info("🎵 AXLMUSICBOT is online (file mode)!")
     await asyncio.Event().wait()
 
 if __name__ == "__main__":

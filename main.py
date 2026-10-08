@@ -22,15 +22,45 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # VC support (optional - requires py-tgcalls + SESSION_STRING)
-# Note: Compatibility shims removed for py-tgcalls 2.3.3
-# The public_key error is a known issue - using direct play() without shims
+# Compatibility shims: py-tgcalls 2.3.3 expects names removed from pyrogram 2.0.x
+# These ARE required - without them, PyTgCalls init fails!
+try:
+    import pyrogram.errors as _pge
+    _fallback = getattr(_pge, 'GroupcallAddParticipantsFailed', Exception)
+    for _name in ('GroupcallForbidden', 'GroupcallInvalid'):
+        if not hasattr(_pge, _name):
+            setattr(_pge, _name, _fallback)
+    
+    # InputGroupCallSlug was removed from pyrogram.raw.types
+    import pyrogram.raw.types as _prt
+    if not hasattr(_prt, 'InputGroupCallSlug'):
+        from pyrogram.raw.core import TLObject
+        class InputGroupCallSlug(TLObject):
+            ID = 0xc5af1d61
+            QUALNAME = "types.InputGroupCallSlug"
+            def __init__(self, *, slug: str):
+                self.slug = slug
+        _prt.InputGroupCallSlug = InputGroupCallSlug
+    
+    # PhoneCallDiscardReasonMigrateConferenceCall was removed
+    if not hasattr(_prt, 'PhoneCallDiscardReasonMigrateConferenceCall'):
+        from pyrogram.raw.core import TLObject
+        class PhoneCallDiscardReasonMigrateConferenceCall(TLObject):
+            ID = 0x0e1e1ad8
+            QUALNAME = "types.PhoneCallDiscardReasonMigrateConferenceCall"
+            def __init__(self):
+                pass
+        _prt.PhoneCallDiscardReasonMigrateConferenceCall = PhoneCallDiscardReasonMigrateConferenceCall
+except Exception as _shim_err:
+    logger.warning(f"Shim setup warning: {_shim_err}")
+
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.types import MediaStream
     VC_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     VC_AVAILABLE = False
-    logger.warning("py-tgcalls not installed - VC features disabled")
+    logger.warning(f"py-tgcalls not installed - VC features disabled: {e}")
 
 # yt-dlp options for audio extraction
 # Uses cookies (user's YouTube login) to bypass bot detection

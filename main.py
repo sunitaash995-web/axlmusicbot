@@ -476,7 +476,7 @@ async def play_cmd(client, message: Message):
 
 @app.on_message(filters.command("vplay"))
 async def vplay_cmd(client, message: Message):
-    """Play in voice chat"""
+    """Play in voice chat - downloads file first (bypasses stream URL issues)"""
     if not pytgcalls:
         await message.reply_text(
             "❌ VC feature abhi available nahi hai!\n"
@@ -493,30 +493,72 @@ async def vplay_cmd(client, message: Message):
     status = await message.reply_text(f"🔍 **{query}** dhoond raha hoon...")
 
     try:
+        # Step 1: Get video info via HTML search (works!)
         info = get_audio_url(query)
-
-        # Add to queue
-        if chat_id not in queues:
-            queues[chat_id] = []
-        queues[chat_id].append(info)
-
-        # Join VC and play (play auto-joins in py-tgcalls 2.x)
-        try:
-            await pytgcalls.play(chat_id, MediaStream(info["url"]))
-            logger.info(f"Playing in VC {chat_id}")
-        except Exception as play_err:
-                logger.error(f"Play failed: {play_err}")
-                raise play_err
-
-        await status.edit_text(
-            f"🎵 **VC me baj raha hai:**\n"
-            f"**{info['title']}**\n"
-            f"⏱️ {info['duration']//60}:{info['duration']%60:02d}"
-        )
-
+        # If get_audio_url fails, try direct download approach
     except Exception as e:
-        logger.error(f"VPlay error: {e}")
-        await status.edit_text(f"❌ Error: {str(e)[:200]}")
+        logger.warning(f"get_audio_url failed: {e}, trying direct download")
+        info = None
+    
+    # Step 2: Download the audio file directly (like /play does - this works!)
+    await status.edit_text(f"⬇️ Download ho raha hai...")
+    
+    dl_opts = {
+        "format": "bestaudio/best",
+        "quiet": True,
+        "no_warnings": True,
+        "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
+        **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android_music", "android", "ios"],
+                "player_skip": ["webpage", "configs"],
+            }
+        },
+        **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(dl_opts) as ydl:
+            # Search and download in one go
+            search_url = f"ytsearch1:{query}" if not query.startswith("http") else query
+            dl_info = ydl.extract_info(search_url, download=True)
+            if "entries" in dl_info:
+                dl_info = dl_info["entries"][0]
+            filename = ydl.prepare_filename(dl_info).rsplit(".", 1)[0] + ".mp3"
+            title = dl_info.get("title", "Unknown")
+            duration = dl_info.get("duration", 0)
+    except Exception as dl_err:
+        logger.error(f"Download failed: {dl_err}")
+        await status.edit_text(f"❌ Download failed: {str(dl_err)[:150]}")
+        return
+
+    # Step 3: Play the LOCAL file in VC (no stream URL needed!)
+    await status.edit_text(f"🎵 **{title}** VC me baja raha hoon...")
+    
+    # Add to queue
+    if chat_id not in queues:
+        queues[chat_id] = []
+    queues[chat_id].append({"title": title, "file": filename, "duration": duration})
+
+    try:
+        await pytgcalls.play(chat_id, MediaStream(filename))
+        logger.info(f"Playing local file in VC {chat_id}: {filename}")
+    except Exception as play_err:
+        logger.error(f"Play failed: {play_err}")
+        await status.edit_text(f"❌ Play failed: {str(play_err)[:150]}")
+        return
+
+    await status.edit_text(
+        f"🎵 **VC me baj raha hai:**\n"
+        f"**{title}**\n"
+        f"⏱️ {duration//60}:{duration%60:02d}"
+    )
 
 @app.on_message(filters.command("stop"))
 async def stop_cmd(client, message: Message):

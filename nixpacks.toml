@@ -1,4 +1,3 @@
-# Railway (Nixpacks) needs ffmpeg for yt-dlp's FFmpegExtractAudio
-# postprocessor used by the /play command (mp3 download + send).
+# Railway (Nixpacks) needs ffmpeg for yt-dlp and py-tgcalls audio processing
 [phases.setup]
-aptPkgs = ["ffmpeg"]
+nixPkgs = ["ffmpeg"]

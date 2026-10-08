@@ -142,6 +142,20 @@ if VC_AVAILABLE and user:
         _ffprobe = shutil.which("ffprobe")
         logger.info(f"🎬 ffmpeg: {_ffmpeg or 'NOT FOUND'}")
         logger.info(f"🎬 ffprobe: {_ffprobe or 'NOT FOUND'}")
+        
+        # Try imageio-ffmpeg as fallback for ffmpeg binary
+        if not _ffmpeg:
+            try:
+                import imageio_ffmpeg
+                _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+                logger.info(f"🎬 imageio-ffmpeg: {_ffmpeg_path}")
+                # Add to PATH so py-tgcalls can find it
+                import os
+                os.environ["PATH"] = os.path.dirname(_ffmpeg_path) + ":" + os.environ["PATH"]
+                # Create symlink for ffmpeg
+                _ffmpeg = shutil.which("ffmpeg") or _ffmpeg_path
+            except Exception as e:
+                logger.warning(f"imageio-ffmpeg not available: {e}")
     except Exception as e:
         logger.warning(f"PyTgCalls init failed (VC disabled): {e}")
         pytgcalls = None
@@ -493,11 +507,35 @@ async def queue_cmd(client, message: Message):
     await message.reply_text(text)
 
 async def main():
-    await bot.start()
+    # Handle FloodWait (Telegram rate limit from too many redeploys)
+    # Wait instead of crashing
+    from pyrogram.errors import FloodWait
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            await bot.start()
+            break
+        except FloodWait as e:
+            wait_time = e.value + 10
+            logger.warning(f"⏳ FloodWait: waiting {wait_time}s (attempt {attempt+1}/{max_retries})")
+            await asyncio.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Bot start failed: {e}")
+            raise
+    else:
+        logger.error("❌ Bot failed to start after retries")
+        return
+    
     logger.info("🤖 Bot client started")
     if user:
-        await user.start()
-        logger.info("👤 User client started")
+        try:
+            await user.start()
+            logger.info("👤 User client started")
+        except FloodWait as e:
+            logger.warning(f"⏳ User client FloodWait: waiting {e.value + 10}s")
+            await asyncio.sleep(e.value + 10)
+            await user.start()
+            logger.info("👤 User client started (after wait)")
     if pytgcalls:
         await pytgcalls.start()
         logger.info("🎵 AXLMUSICBOT is online with VC support!")

@@ -504,7 +504,7 @@ async def vplay_cmd(client, message: Message):
     await status.edit_text(f"⬇️ Download ho raha hai...")
     
     dl_opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio/best/worst",
         "quiet": True,
         "no_warnings": True,
         "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
@@ -512,7 +512,7 @@ async def vplay_cmd(client, message: Message):
         **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
         "extractor_args": {
             "youtube": {
-                "player_client": ["web"],
+                "player_client": ["web", "android"],
             }
         },
         **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),

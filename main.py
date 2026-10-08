@@ -510,10 +510,11 @@ async def vplay_cmd(client, message: Message):
         "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
         # Web cookies (from web browser)
         **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
-        # Try multiple clients - let yt-dlp pick what works
+        # PO Token provider (like Axlmusic!) + multiple clients
         "extractor_args": {
             "youtube": {
-                "player_client": ["ios", "android", "web", "tv"],
+                "player_client": ["web", "android", "ios"],
+                "po_token_provider": ["bgutil-http"],
             }
         },
         **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),

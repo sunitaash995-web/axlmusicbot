@@ -22,13 +22,14 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # VC support (optional - requires py-tgcalls + SESSION_STRING)
-# Compatibility shim: py-tgcalls expects GroupcallForbidden in pyrogram.errors
-# but newer pyrogram versions removed it. Add it back as an alias.
+# Compatibility shim: py-tgcalls expects Groupcall* names in pyrogram.errors
+# but newer pyrogram versions removed them. Add them back as aliases.
 try:
     import pyrogram.errors as _pge
-    if not hasattr(_pge, 'GroupcallForbidden'):
-        # Alias to a similar existing error
-        _pge.GroupcallForbidden = getattr(_pge, 'GroupcallAddParticipantsFailed', Exception)
+    _fallback = getattr(_pge, 'GroupcallAddParticipantsFailed', Exception)
+    for _name in ('GroupcallForbidden', 'GroupcallInvalid'):
+        if not hasattr(_pge, _name):
+            setattr(_pge, _name, _fallback)
 except Exception:
     pass
 

@@ -41,6 +41,17 @@ try:
             def __init__(self, *, slug: str):
                 self.slug = slug
         _prt.InputGroupCallSlug = InputGroupCallSlug
+    
+    # PhoneCallDiscardReasonMigrateConferenceCall was removed
+    # Recreate it: phoneCallDiscardReasonMigrateConferenceCall#0e1e1ad8 = PhoneCallDiscardReason
+    if not hasattr(_prt, 'PhoneCallDiscardReasonMigrateConferenceCall'):
+        from pyrogram.raw.core import TLObject
+        class PhoneCallDiscardReasonMigrateConferenceCall(TLObject):
+            ID = 0x0e1e1ad8
+            QUALNAME = "types.PhoneCallDiscardReasonMigrateConferenceCall"
+            def __init__(self):
+                pass
+        _prt.PhoneCallDiscardReasonMigrateConferenceCall = PhoneCallDiscardReasonMigrateConferenceCall
 except Exception:
     pass
 

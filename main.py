@@ -281,13 +281,13 @@ def _jiosaavn_search(query: str) -> dict:
     if not encrypted_url:
         raise Exception("No audio URL")
     
-    # Decrypt the media URL (JioSaavn uses DES)
-    # Key is hex string '3834657266504547' = 8 bytes
+    # Decrypt the media URL (JioSaavn uses DES/3DES)
     try:
-        from Crypto.Cipher import DES
+        from Crypto.Cipher import DES3
         import base64
-        key = bytes.fromhex('3834657266504547')  # 8 bytes for DES
-        cipher = DES.new(key, DES.MODE_ECB)
+        # Try 3DES with 16-byte key (common for JioSaavn)
+        key = b'3834657266504547'  # 16 bytes for 3DES
+        cipher = DES3.new(key, DES3.MODE_ECB)
         decrypted = cipher.decrypt(base64.b64decode(encrypted_url))
         # Remove PKCS5 padding
         pad_len = decrypted[-1]

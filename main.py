@@ -224,12 +224,21 @@ async def vplay_cmd(client, message: Message):
             queues[chat_id] = []
         queues[chat_id].append(info)
 
-        # If not already playing, start
+        # Join VC and play (join first, then play)
         try:
-            await pytgcalls.play(chat_id, MediaStream(info["url"]))
-        except Exception:
-            # Already in call, just queued
-            pass
+            await pytgcalls.join_group_call(
+                chat_id,
+                MediaStream(info["url"]),
+            )
+            logger.info(f"Joined VC in {chat_id}")
+        except Exception as join_err:
+            # Already in call, try to play
+            logger.info(f"Join failed (maybe already in call): {join_err}")
+            try:
+                await pytgcalls.play(chat_id, MediaStream(info["url"]))
+            except Exception as play_err:
+                logger.error(f"Play failed: {play_err}")
+                raise play_err
 
         await status.edit_text(
             f"🎵 **VC me baj raha hai:**\n"

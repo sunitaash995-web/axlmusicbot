@@ -64,7 +64,8 @@ except ImportError:
     logger.warning("py-tgcalls not installed - VC features disabled")
 
 # yt-dlp options for audio extraction
-# Uses Android client to bypass YouTube bot detection (Axlmusic method: no cookies)
+# Uses Android client + skips webpage to bypass YouTube bot detection (no cookies)
+# Same principle as Axlmusic: direct InnerTube API, no webpage scraping
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -74,7 +75,8 @@ YTDL_OPTS = {
     "noplaylist": True,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"],
+            "player_client": ["android_music", "android", "ios", "web"],
+            "player_skip": ["webpage", "configs"],
         }
     },
 }

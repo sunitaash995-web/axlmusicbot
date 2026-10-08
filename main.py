@@ -64,6 +64,7 @@ except ImportError:
     logger.warning("py-tgcalls not installed - VC features disabled")
 
 # yt-dlp options for audio extraction
+# Uses Android client to bypass YouTube bot detection (Axlmusic method: no cookies)
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -71,6 +72,11 @@ YTDL_OPTS = {
     "extract_flat": False,
     "default_search": "ytsearch",
     "noplaylist": True,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "web"],
+        }
+    },
 }
 
 # Initialize clients
@@ -109,7 +115,8 @@ if VC_AVAILABLE and user:
 queues = {}
 
 def get_audio_url(query: str) -> dict:
-    """Search YouTube and get direct audio URL + metadata"""
+    """Search YouTube and get direct audio URL + metadata
+    Uses Android player client to bypass bot detection (no cookies needed)"""
     with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
         # If query is not a URL, search
         if not query.startswith("http"):

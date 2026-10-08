@@ -64,9 +64,30 @@ except ImportError:
     logger.warning("py-tgcalls not installed - VC features disabled")
 
 # yt-dlp options for audio extraction
-# Uses Android client + skips webpage to bypass YouTube bot detection (no cookies)
-# Same principle as Axlmusic: direct InnerTube API, no webpage scraping
-# NOTE: No ffmpeg_location here - info extraction doesn't need ffmpeg
+# Uses cookies (user's YouTube login) to bypass bot detection
+# Cookies come from YT_COOKIES env var (secure) or cookies.txt file
+import os as _os
+
+def _get_cookie_file():
+    # Option 1: YT_COOKIES env var (secure - for Railway)
+    cookies_data = _os.getenv("YT_COOKIES", "")
+    if cookies_data:
+        # Write to /tmp (not committed to git)
+        path = "/tmp/cookies.txt"
+        try:
+            with open(path, "w") as f:
+                f.write(cookies_data)
+            return path
+        except Exception:
+            pass
+    # Option 2: Local cookies.txt file (for development)
+    local_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "cookies.txt")
+    if _os.path.exists(local_path):
+        return local_path
+    return None
+
+_COOKIE_FILE = _get_cookie_file()
+
 YTDL_OPTS = {
     "format": "bestaudio/best",
     "quiet": True,
@@ -74,12 +95,7 @@ YTDL_OPTS = {
     "extract_flat": False,
     "default_search": "ytsearch",
     "noplaylist": True,
-    "extractor_args": {
-        "youtube": {
-            "player_client": ["android_music", "android", "ios", "web"],
-            "player_skip": ["webpage", "configs"],
-        }
-    },
+    **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
 }
 
 # Get ffmpeg binary path for downloads (imageio-ffmpeg bundled)
@@ -229,10 +245,10 @@ def _innertube_player(video_id: str) -> dict:
     raise Exception(f"InnerTube failed: {last_error}")
 
 def get_audio_url(query: str) -> dict:
-    """Get audio URL via Axlmusic's InnerTube method (no yt-dlp, no cookies, no bot check)
+    """Get audio URL - tries yt-dlp with cookies first, then InnerTube.
     
     If query is a URL, extract video ID directly.
-    Otherwise, search via InnerTube API.
+    Otherwise, search via yt-dlp.
     """
     # Extract video ID if URL provided
     video_id = None
@@ -244,48 +260,48 @@ def get_audio_url(query: str) -> dict:
         if m:
             video_id = m.group(1)
     
+    # Try yt-dlp with cookies FIRST (most reliable with valid cookies)
+    try:
+        with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
+            if video_id:
+                url = f"https://www.youtube.com/watch?v={video_id}"
+            elif not query.startswith("http"):
+                url = f"ytsearch1:{query}"
+            else:
+                url = query
+            info = ydl.extract_info(url, download=False)
+            if "entries" in info:
+                info = info["entries"][0]
+            return {
+                "url": info["url"],
+                "title": info.get("title", "Unknown"),
+                "duration": info.get("duration", 0),
+                "thumbnail": info.get("thumbnail", ""),
+                "webpage_url": info.get("webpage_url", ""),
+            }
+    except Exception as e:
+        logger.warning(f"yt-dlp with cookies failed: {str(e)[:100]}, trying InnerTube")
+    
+    # Fallback: InnerTube API (no cookies)
     if not video_id:
-        # Search via InnerTube (no yt-dlp!)
         try:
             result = _innertube_search(query)
             video_id = result["id"]
             title_hint = result["title"]
         except Exception as e:
-            # Fallback to yt-dlp search only (no download)
-            logger.warning(f"InnerTube search failed: {e}, trying yt-dlp")
-            with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True}) as ydl:
-                info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-                if "entries" in info:
-                    info = info["entries"][0]
-                video_id = info.get("id", "")
-                title_hint = info.get("title", "Unknown")
+            raise Exception(f"Search failed: {e}")
     
     if not video_id:
         raise Exception("Could not find video")
     
-    # Get audio URL via InnerTube player (Axlmusic method)
     try:
         result = _innertube_player(video_id)
         if result["title"] == "Unknown" and title_hint:
             result["title"] = title_hint
-        # Get thumbnail
-        try:
-            result["thumbnail"] = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
-        except:
-            pass
+        result["thumbnail"] = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
         return result
     except Exception as e:
-        logger.warning(f"InnerTube player failed: {e}, trying yt-dlp")
-        # Last resort: yt-dlp (may hit bot check)
-        with yt_dlp.YoutubeDL(YTDL_OPTS) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            return {
-                "url": info["url"],
-                "title": info.get("title", title_hint or "Unknown"),
-                "duration": info.get("duration", 0),
-                "thumbnail": info.get("thumbnail", ""),
-                "webpage_url": info.get("webpage_url", ""),
-            }
+        raise Exception(f"All methods failed: {str(e)[:100]}")
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message: Message):

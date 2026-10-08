@@ -508,12 +508,11 @@ async def vplay_cmd(client, message: Message):
         "quiet": True,
         "no_warnings": True,
         "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
-        # NO cookies for download - android client works better without them
-        # (cookies from web browser confuse the android client)
+        # Web cookies with web client (cookies are from web browser!)
+        **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
         "extractor_args": {
             "youtube": {
-                "player_client": ["android_music", "android"],
-                "player_skip": ["webpage", "configs"],
+                "player_client": ["web"],
             }
         },
         **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),

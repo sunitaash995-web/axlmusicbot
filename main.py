@@ -22,6 +22,16 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # VC support (optional - requires py-tgcalls + SESSION_STRING)
+# Compatibility shim: py-tgcalls expects GroupcallForbidden in pyrogram.errors
+# but newer pyrogram versions removed it. Add it back as an alias.
+try:
+    import pyrogram.errors as _pge
+    if not hasattr(_pge, 'GroupcallForbidden'):
+        # Alias to a similar existing error
+        _pge.GroupcallForbidden = getattr(_pge, 'GroupcallAddParticipantsFailed', Exception)
+except Exception:
+    pass
+
 try:
     from pytgcalls import PyTgCalls
     from pytgcalls.types import MediaStream

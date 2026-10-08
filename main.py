@@ -95,6 +95,16 @@ YTDL_OPTS = {
     "default_search": "ytsearch",
     "noplaylist": True,
     **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
+    # Bypass bot detection: use mobile clients + skip webpage (with cookies)
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android_music", "android", "ios"],
+            "player_skip": ["webpage", "configs"],
+        }
+    },
+    # Handle consent pages and retries
+    "retries": 3,
+    "socket_timeout": 30,
 }
 
 # Get ffmpeg binary path for downloads (imageio-ffmpeg bundled)

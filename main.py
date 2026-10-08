@@ -574,54 +574,14 @@ async def vplay_cmd(client, message: Message):
         logger.info(f"JioSaavn download complete: {filename}")
         
     except Exception as js_err:
-        logger.warning(f"JioSaavn failed: {js_err}, trying YouTube")
-        filename = None
+        logger.error(f"JioSaavn failed: {js_err}")
+        await status.edit_text(f"❌ JioSaavn failed: {str(js_err)[:150]}")
+        return
     
-    # Fallback: YouTube download (if JioSaavn failed)
+    # Verify file exists
     if not filename or not os.path.exists(filename):
-        try:
-            # Step 1: Get video info via HTML search (works!)
-            info = get_audio_url(query)
-        except Exception as e:
-            logger.warning(f"get_audio_url failed: {e}, trying direct download")
-            info = None
-        
-        # Step 2: Download the audio file directly
-        await status.edit_text(f"⬇️ Download ho raha hai...")
-        
-        dl_opts = {
-            "format": "bestaudio/best",
-            "quiet": True,
-            "no_warnings": True,
-            "outtmpl": f"/tmp/vplay_%(id)s.%(ext)s",
-            **({"cookiefile": _COOKIE_FILE} if _COOKIE_FILE else {}),
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web", "android", "ios"],
-                    "po_token_provider": ["bgutil-http"],
-                }
-            },
-            **({"ffmpeg_location": _FFMPEG_EXE} if _FFMPEG_EXE else {}),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-        }
-        
-        try:
-            with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                search_url = f"ytsearch1:{query}" if not query.startswith("http") else query
-                dl_info = ydl.extract_info(search_url, download=True)
-                if "entries" in dl_info:
-                    dl_info = dl_info["entries"][0]
-                filename = ydl.prepare_filename(dl_info).rsplit(".", 1)[0] + ".mp3"
-                title = dl_info.get("title", "Unknown")
-                duration = dl_info.get("duration", 0)
-        except Exception as dl_err:
-            logger.error(f"Download failed: {dl_err}")
-            await status.edit_text(f"❌ Download failed: {str(dl_err)[:150]}")
-            return
+        await status.edit_text(f"❌ Download failed!")
+        return
 
     # Step 3: Play the LOCAL file in VC (no stream URL needed!)
     await status.edit_text(f"🎵 **{title}** VC me baja raha hoon...")

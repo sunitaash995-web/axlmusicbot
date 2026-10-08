@@ -1,0 +1,4 @@
+# Railway (Nixpacks) needs ffmpeg for yt-dlp's FFmpegExtractAudio
+# postprocessor used by the /play command (mp3 download + send).
+[phases.setup]
+aptPkgs = ["ffmpeg"]

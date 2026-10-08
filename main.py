@@ -52,7 +52,11 @@ app = Client(
 # VC client (only if available and session string provided)
 pytgcalls = None
 if VC_AVAILABLE and SESSION_STRING:
-    pytgcalls = PyTgCalls(app)
+    try:
+        pytgcalls = PyTgCalls(app)
+    except Exception as e:
+        logger.warning(f"PyTgCalls init failed (VC disabled): {e}")
+        pytgcalls = None
 
 # Queue per chat
 queues = {}
